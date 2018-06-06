@@ -64,3 +64,7 @@ $MyModuleSettings = array(
 ```
 
 2. Create a new **Multiple LDAP user** account and specify its **LDAP config name** field with the name of the settings from the previous step (e.g. 'default' or 'other_config').
+
+## Links
+- [iTop ITSM & CMDB Russian community](http://community.itop-itsm.ru)
+- [Combodo](https://www.combodo.com/?lang=en)
