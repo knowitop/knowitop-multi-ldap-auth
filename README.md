@@ -1,4 +1,4 @@
-# Multiple LDAP Server Authentication for Combodo iTop 2.4
+# Multiple LDAP Server Authentication for Combodo iTop
 
 This module allows you to define multiple LDAP servers for user authentication.
 
@@ -23,9 +23,8 @@ $MyModuleSettings = array(
     // other params
     
     'knowitop-multi-ldap-auth' => array(
-        'debug' => false,
         'ldap_settings' => array(
-            'default' => // <-- Settings defined by default, you are free to change, rename or remove it
+            'your_ldap_config_name' => // <-- Settings defined by default, you are free to change, rename or remove it
                 array(
                     'host' => 'localhost',
                     'port' => 389,
@@ -63,7 +62,9 @@ $MyModuleSettings = array(
 // other params
 ```
 
-2. Create a new **Multiple LDAP user** account and specify its **LDAP config name** field with the name of the settings from the previous step (e.g. 'default' or 'other_config').
+2. Create a new **Multiple LDAP user** account and select its **LDAP config name** from the settings defined in the previous step (e.g. 'your_ldap_config_name' or 'other_config') or use LDAP settings from the standard authent-ldap module.
+
+Note: use the `debug` directive from the standard authent-ldap module to debug this module.
 
 ## Links
 - [iTop ITSM & CMDB Russian community](http://community.itop-itsm.ru)
