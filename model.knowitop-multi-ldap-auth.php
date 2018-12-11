@@ -1,179 +1,162 @@
 <?php
 
 /**
- * Multiple LDAP Authentication (created from standard authent-ldap module)
+ * Multiple LDAP Authentication (based on standard authent-ldap module)
  *
  * @author      Vladimir Kunin https://community.itop-itsm.ru
  * @license     http://opensource.org/licenses/AGPL-3.0
  */
-class UserMultipleLDAP extends UserInternal
+class UserMultipleLDAP extends UserLDAP
 {
-    public static function Init()
-    {
-        $aParams = array
-        (
-            "category" => "addon/authentication",
-            "key_type" => "autoincrement",
-            "name_attcode" => "login",
-            "state_attcode" => "",
-            "reconc_keys" => array('login'),
-            "db_table" => "priv_usermultipleldap",
-            "db_key_field" => "id",
-            "db_finalclass_field" => "",
-            "display_template" => "",
-        );
-        MetaModel::Init_Params($aParams);
-        MetaModel::Init_InheritAttributes();
-        MetaModel::Init_AddAttribute(new AttributeString("config_name", array("allowed_values" => null, "sql" => 'config_name', "default_value" => 'default', "is_null_allowed" => false, "depends_on" => array(), "always_load_in_tables" => false)));
-        MetaModel::Init_SetZListItems('details', array('contactid', 'first_name', 'email', 'login', 'language', 'status', 'config_name', 'profile_list', 'allowed_org_list'));
-        MetaModel::Init_SetZListItems('list', array('first_name', 'last_name', 'login', 'status'));
-        MetaModel::Init_SetZListItems('standard_search', array('login', 'contactid', 'status'));
-        MetaModel::Init_SetZListItems('advanced_search', array('login', 'contactid'));
-    }
+	public static function Init()
+	{
+		$aParams = array
+		(
+			"category" => "addon/authentication",
+			"key_type" => "autoincrement",
+			"name_attcode" => "login",
+			"state_attcode" => "",
+			"reconc_keys" => array('login'),
+			"db_table" => "priv_usermultipleldap",
+			"db_key_field" => "id",
+			"db_finalclass_field" => "",
+			"display_template" => "",
+		);
+		MetaModel::Init_Params($aParams);
+		MetaModel::Init_InheritAttributes();
+		MetaModel::Init_AddAttribute(new AttributeLDAPConfigSelect("config_name", array(
+			"allowed_values" => null,
+			"sql" => 'config_name',
+			"default_value" => 'authent-ldap',
+			"is_null_allowed" => false,
+			"depends_on" => array(),
+			"always_load_in_tables" => false
+		)));
+		MetaModel::Init_SetZListItems('details', array(
+			'contactid',
+			'first_name',
+			'email',
+			'login',
+			'language',
+			'status',
+			'config_name',
+			'profile_list',
+			'allowed_org_list'
+		));
+		// MetaModel::Init_SetZListItems('list', array('first_name', 'last_name', 'login', 'status'));
+		// MetaModel::Init_SetZListItems('standard_search', array('login', 'contactid', 'status'));
+		// MetaModel::Init_SetZListItems('advanced_search', array('login', 'contactid'));
+	}
 
-    /**
-     * @param string $sPassword The user's password to validate against the LDAP server
-     * @return boolean True if the password is Ok, false otherwise
-     * @throws ArchivedObjectException
-     * @throws CoreException
-     */
-    public function CheckCredentials($sPassword)
-    {
-        if (!function_exists('ldap_connect')) {
-            throw new CoreException("'ldap_connect' function doesn't exist. Check that php-ldap extension is installed.");
-        }
-            $aConfigs = MetaModel::GetModuleSetting('knowitop-multi-ldap-auth', 'ldap_settings', array());
-        if (empty($aConfigs)) {
-            $this->LogMessage("can not found 'ldap_settings' directive. Check the configuration file config-itop.php.");
-            return false;
-        }
-        $sUserConfigName = $this->Get('config_name');
-        $aLDAPConfig = isset($aConfigs[$sUserConfigName]) ? $aConfigs[$sUserConfigName] : array();
-        if (empty($aLDAPConfig)) {
-            $this->LogMessage("can not found LDAP settings with name '$sUserConfigName' for user '" . $this->Get('login') . "'. Check the configuration file config-itop.php.");
-            return false;
-        } else {
-            $sLDAPHost = $aLDAPConfig['host'] ?: 'localhost';
-            $iLDAPPort = $aLDAPConfig['port'] ?: 389;
+	/**
+	 * @param string $sPassword The user's password to validate against the LDAP server
+	 *
+	 * @return boolean True if the password is Ok, false otherwise
+	 * @throws CoreException
+	 */
+	public function CheckCredentials($sPassword)
+	{
+		if (!function_exists('ldap_connect'))
+		{
+			throw new CoreException("'ldap_connect' function doesn't exist. Check that php-ldap extension is installed.");
+		}
+		$sUserConfigName = $this->Get('config_name');
+		if ($sUserConfigName && $sUserConfigName !== 'authent-ldap')
+		{
+			$aConfigs = self::GetLDAPConfigs();
+			if (empty($aConfigs))
+			{
+				$this->LogMessage("can not found 'ldap_settings' directive. Check the configuration file config-itop.php.");
 
-            $sDefaultLDAPUser = $aLDAPConfig['default_user'] ?: '';
-            $sDefaultLDAPPwd = $aLDAPConfig['default_pwd'] ?: '';
-            $bLDAPStartTLS = $aLDAPConfig['start_tls'] == true;
+				return false;
+			}
+			$aLDAPConfig = isset($aConfigs[$sUserConfigName]) ? $aConfigs[$sUserConfigName] : array();
+			if (empty($aLDAPConfig))
+			{
+				$this->LogMessage("can not found LDAP settings with name '$sUserConfigName' for user '".$this->Get('login')."'. Check the configuration file config-itop.php.");
 
-            $aOptions = $aLDAPConfig['options'] ?: array();
-        }
+				return false;
+			}
+			// NOTE: Rewrite standard LDAP config for the user authentication
+			// Is this can affect other users in some way??
+			$oAppConfig = MetaModel::GetConfig();
+			foreach ($aLDAPConfig as $sKey => $value)
+			{
+				$oAppConfig->SetModuleSetting('authent-ldap', $sKey, $value);
+			}
+		}
 
-        if (array_key_exists(LDAP_OPT_DEBUG_LEVEL, $aOptions)) {
-            // Set debug level before trying to connect, so that debug info appear in the PHP error log if ldap_connect goes wrong
-            $bRet = ldap_set_option($hDS, LDAP_OPT_DEBUG_LEVEL, $aOptions[LDAP_OPT_DEBUG_LEVEL]);
-            $this->LogMessage("ldap_set_option('$name', '$value') returned " . ($bRet ? 'true' : 'false'));
-        }
-        $hDS = @ldap_connect($sLDAPHost, $iLDAPPort);
-        if ($hDS === false) {
-            $this->LogMessage("can not connect to the LDAP server '$sLDAPHost' (port: $iLDAPPort). Check the configuration '$sUserConfigName' in file config-itop.php.");
-            return false;
-        }
-        foreach ($aOptions as $name => $value) {
-            $bRet = ldap_set_option($hDS, $name, $value);
-            $this->LogMessage("ldap_set_option('$name', '$value') returned " . ($bRet ? 'true' : 'false'));
-        }
-        if ($bLDAPStartTLS) {
-            $this->LogMessage("ldap_authentication: start tls required.");
-            $hStartTLS = ldap_start_tls($hDS);
-            //$this->LogMessage("ldap_authentication: hStartTLS = '$hStartTLS'");
-            if (!$hStartTLS) {
-                $this->LogMessage("ldap_authentication: start tls failed.");
-                return false;
-            }
-        }
+		return parent::CheckCredentials($sPassword);
+	}
 
-        if ($bind = @ldap_bind($hDS, $sDefaultLDAPUser, $sDefaultLDAPPwd)) {
-            // Search for the person, using the specified query expression
-            $sLDAPUserQuery = $aLDAPConfig['user_query'] ?: '';
-            $sBaseDN = $aLDAPConfig['base_dn'] ?: '';
+	protected function LogMessage($sMessage, $aData = array())
+	{
+		parent::LogMessage('multiple_ldap_authentication: '.$sMessage, $aData);
+	}
 
-            $sLogin = $this->Get('login');
-            $iContactId = $this->Get('contactid');
-            $sFirstName = '';
-            $sLastName = '';
-            $sEMail = '';
-            if ($iContactId > 0) {
-                $oPerson = MetaModel::GetObject('Person', $iContactId);
-                if (is_object($oPerson)) {
-                    $sFirstName = $oPerson->Get('first_name');
-                    $sLastName = $oPerson->Get('name');
-                    $sEMail = $oPerson->Get('email');
-                }
-            }
-            // %1$s => login
-            // %2$s => first name
-            // %3$s => last name
-            // %4$s => email
-            $sQuery = sprintf($sLDAPUserQuery, $sLogin, $sFirstName, $sLastName, $sEMail);
-            $hSearchResult = @ldap_search($hDS, $sBaseDN, $sQuery);
+	static public function GetLDAPConfigs()
+	{
+		$aConfigs = MetaModel::GetModuleSetting('knowitop-multi-ldap-auth', 'ldap_settings', array());
+		$aDefaults = [
+			'host' => 'localhost',
+			'port' => 389,
+			'default_user' => '',
+			'default_pwd' => '',
+			'user_query' => '',
+			'base_dn' => '',
+			'start_tls' => true,
+			'options' => []
+		];
+		array_walk($aConfigs, function (&$aConfig) use ($aDefaults) {
+			return array_merge($aDefaults, $aConfig);
+		});
 
-            $iCountEntries = ($hSearchResult !== false) ? @ldap_count_entries($hDS, $hSearchResult) : 0;
-            switch ($iCountEntries) {
-                case 1:
-                    // Exactly one entry found, let's check the password by trying to bind with this user
-                    $aEntry = ldap_get_entries($hDS, $hSearchResult);
-                    $sUserDN = $aEntry[0]['dn'];
-                    $bUserBind = @ldap_bind($hDS, $sUserDN, $sPassword);
-                    if (($bUserBind !== false) && !empty($sPassword)) {
-                        ldap_unbind($hDS);
-                        return true; // Password Ok
-                    }
-                    $this->LogMessage("wrong password for user: '$sUserDN'.");
-                    return false; // Wrong password
-                    break;
+		return $aConfigs;
+	}
+}
 
-                case 0:
-                    // User not found...
-                    $this->LogMessage("no entry found with the query '$sQuery', base_dn = '$sBaseDN'. User not found in LDAP.");
-                    break;
 
-                default:
-                    // More than one entry... maybe the query is not specific enough...
-                    $this->LogMessage("several (" . ldap_count_entries($hDS, $hSearchResult) . ") entries match the query '$sQuery', base_dn = '$sBaseDN', check that the query defined in '$sUserConfigName' ldap config in config-itop.php is specific enough.");
-            }
-            return false;
-        } else {
-            // Trace: invalid default user for LDAP initial binding
-            $this->LogMessage("can not bind to the LDAP server '$sLDAPHost' (port: $iLDAPPort), user='$sDefaultLDAPUser', pwd='$sDefaultLDAPPwd'. Error: '" . ldap_error($hDS) . "'. Check the '$sUserConfigName' ldap configuration file config-itop.php.");
-            return false;
-        }
-    }
+class AttributeLDAPConfigSelect extends AttributeEnum
+{
 
-    public function TrustWebServerContext()
-    {
-        return false;
-    }
+	public function GetAllowedValues($aArgs = array(), $sContains = '')
+	{
+		$aLDAPConfigs = UserMultipleLDAP::GetLDAPConfigs();
+		$aAllowedValues = [];
+		foreach (array_keys($aLDAPConfigs) as $sKey)
+		{
+			$aAllowedValues[$sKey] = $this->GetValueLabel($sKey);
+		}
+		$aAllowedValues['authent-ldap'] = $this->GetValueLabel('authent-ldap');
 
-    public function CanChangePassword()
-    {
-        return false;
-    }
+		return $aAllowedValues;
+	}
 
-    public function ChangePassword($sOldPassword, $sNewPassword)
-    {
-        return false;
-    }
+	public function GetValueLabel($sValue)
+	{
+		if ($sValue === 'authent-ldap')
+		{
+			$sStandardHost = MetaModel::GetModuleSetting('authent-ldap', 'host', 'localhost');
+			$iStandardPort = MetaModel::GetModuleSetting('authent-ldap', 'port', 389);
 
-    protected function LogMessage($sMessage, $aData = array())
-    {
-        if (MetaModel::GetModuleSetting('knowitop-multi-ldap-auth', 'debug', false) && MetaModel::IsLogEnabledIssue()) {
-            if (MetaModel::IsValidClass('EventIssue')) {
-                $oLog = new EventIssue();
+			return Dict::Format('Class:'.$this->GetHostClass().'/Attribute:'.$this->GetCode().'/Value:'.$sValue,
+				$sStandardHost, $iStandardPort);
+		}
+		elseif (!is_null($sValue))
+		{
+			$aLDAPConfigs = UserMultipleLDAP::GetLDAPConfigs();
+			if (isset($aLDAPConfigs[$sValue]))
+			{
+				return Dict::Format('Class:'.$this->GetHostClass().'/Attribute:'.$this->GetCode().'/Value:*', $sValue,
+					$aLDAPConfigs[$sValue]['host'], $aLDAPConfigs[$sValue]['port']);
+			}
+			else
+			{
+				return Dict::Format('Class:'.$this->GetHostClass().'/Attribute:'.$this->GetCode().'/Value:config_not_found',
+					$sValue);
+			}
+		}
 
-                $oLog->Set('message', $sMessage);
-                $oLog->Set('userinfo', '');
-                $oLog->Set('issue', 'Multiple LDAP Authentication');
-                $oLog->Set('impact', 'User login rejected');
-                $oLog->Set('data', $aData);
-                $oLog->DBInsertNoReload();
-            }
-
-            IssueLog::Error('multiple_ldap_authentication: ' . $sMessage);
-        }
-    }
+		return parent::GetValueLabel($sValue);
+	}
 }
